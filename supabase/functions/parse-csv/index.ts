@@ -45,30 +45,61 @@ function generatePassword(name: string, postalCode: string, birthday: string): s
 
 // Parse CSV content
 function parseCSV(csvContent: string): CSVRow[] {
-  const lines = csvContent.trim().split("\n");
+  const lines = csvContent.trim().split("\n").filter(line => line.trim().length > 0);
   if (lines.length < 2) {
     throw new Error("CSV must contain headers and at least one data row");
   }
 
-  const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
-  const nameIndex = headers.findIndex(h => h.includes("name"));
-  const postalIndex = headers.findIndex(h => h.includes("postal"));
-  const birthdayIndex = headers.findIndex(h => h.includes("birth"));
+  // Parse headers - handle quotes and various delimiters
+  const headerLine = lines[0];
+  const headers = headerLine.split(",").map(h => h.trim().toLowerCase().replace(/^["']|["']$/g, ""));
+  
+  console.log("Found CSV headers:", headers);
+  
+  // Find column indices with flexible matching
+  const nameIndex = headers.findIndex(h => 
+    h.includes("name") || h === "full_name" || h === "fullname"
+  );
+  const postalIndex = headers.findIndex(h => 
+    h.includes("postal") || h.includes("zip") || h === "postal_code" || h === "postalcode"
+  );
+  const birthdayIndex = headers.findIndex(h => 
+    h.includes("birth") || h.includes("dob") || h === "birthday" || h === "date_of_birth"
+  );
 
   if (nameIndex === -1 || postalIndex === -1 || birthdayIndex === -1) {
-    throw new Error("CSV must contain 'name', 'postal_code', and 'birthday' columns");
+    const missing = [];
+    if (nameIndex === -1) missing.push("name (e.g., 'name', 'full_name', 'fullname')");
+    if (postalIndex === -1) missing.push("postal code (e.g., 'postal_code', 'zip', 'postal')");
+    if (birthdayIndex === -1) missing.push("birthday (e.g., 'birthday', 'birth', 'dob', 'date_of_birth')");
+    
+    throw new Error(
+      `CSV is missing required columns: ${missing.join(", ")}. Found columns: ${headers.join(", ")}`
+    );
   }
+
+  console.log(`Column mapping - Name: ${nameIndex}, Postal: ${postalIndex}, Birthday: ${birthdayIndex}`);
 
   const rows: CSVRow[] = [];
   for (let i = 1; i < lines.length; i++) {
-    const values = lines[i].split(",").map(v => v.trim().replace(/^["']|["']$/g, ""));
-    if (values.length >= 3) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    
+    const values = line.split(",").map(v => v.trim().replace(/^["']|["']$/g, ""));
+    
+    if (values[nameIndex] && values[postalIndex] && values[birthdayIndex]) {
       rows.push({
         name: values[nameIndex],
         postal_code: values[postalIndex],
         birthday: values[birthdayIndex],
       });
+    } else {
+      console.warn(`Skipping row ${i}: missing required values`);
     }
+  }
+
+  if (rows.length === 0) {
+    throw new Error("No valid data rows found in CSV");
   }
 
   return rows;

@@ -49,7 +49,14 @@ const CSVUploader = () => {
           body: { csvContent: text },
         });
 
-        if (error) throw error;
+        if (error) {
+          console.error("Edge function error:", error);
+          throw new Error(error.message || "Failed to process CSV file");
+        }
+
+        if (data?.error) {
+          throw new Error(data.error);
+        }
 
         if (data && data.users) {
           setGeneratedUsers(data.users);
