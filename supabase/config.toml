@@ -1,0 +1,4 @@
+project_id = "ksffjxweybvetcvjyryk"
+
+[functions.parse-csv]
+verify_jwt = true
