@@ -90,23 +90,25 @@ const Dashboard = () => {
           </div>
 
           <div className="absolute bottom-6 left-6 right-6">
-            <div className="p-4 bg-muted rounded-lg mb-4">
-              <p className="text-sm font-medium text-foreground truncate">{user?.email}</p>
+            <div className="p-3 bg-muted rounded-lg">
+              <p className="text-xs font-medium text-foreground truncate">{user?.email}</p>
               <p className="text-xs text-muted-foreground">Admin Account</p>
             </div>
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={handleSignOut}
-            >
-              <LogOut className="mr-2 h-4 w-4" />
-              Sign Out
-            </Button>
           </div>
         </aside>
 
         {/* Main Content */}
         <main className="flex-1 p-8">
+          <div className="flex justify-end mb-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSignOut}
+            >
+              <LogOut className="mr-2 h-3 w-3" />
+              Sign Out
+            </Button>
+          </div>
           <div className="max-w-6xl mx-auto">
             {activeView === "upload" && (
               <div className="space-y-6">
