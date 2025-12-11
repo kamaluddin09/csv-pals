@@ -20,39 +20,105 @@ interface GeneratedUser {
   generated_password: string;
 }
 
+// Validation rules
+const VALIDATION = {
+  name: { maxLength: 100, pattern: /^[a-zA-Z\s\-'.]+$/ },
+  postal_code: { maxLength: 20, pattern: /^[A-Z0-9\s\-]+$/i },
+  birthday: { pattern: /^\d{4}-\d{2}-\d{2}$/, minYear: 1900, maxYear: new Date().getFullYear() },
+  maxRows: 1000,
+  maxFileSize: 5 * 1024 * 1024, // 5MB
+};
+
+// Sanitize CSV value to prevent formula injection
+function sanitizeCSVValue(value: string): string {
+  const trimmed = value.trim().replace(/^["']|["']$/g, "");
+  // Remove potential formula injection
+  if (trimmed.startsWith('=') || trimmed.startsWith('+') || 
+      trimmed.startsWith('-') || trimmed.startsWith('@')) {
+    return trimmed.substring(1);
+  }
+  return trimmed;
+}
+
+// Validate name
+function validateName(name: string): { valid: boolean; error?: string } {
+  if (!name || name.length === 0) {
+    return { valid: false, error: "Name is required" };
+  }
+  if (name.length > VALIDATION.name.maxLength) {
+    return { valid: false, error: `Name must be less than ${VALIDATION.name.maxLength} characters` };
+  }
+  if (!VALIDATION.name.pattern.test(name)) {
+    return { valid: false, error: "Name contains invalid characters" };
+  }
+  return { valid: true };
+}
+
+// Validate postal code
+function validatePostalCode(postalCode: string): { valid: boolean; error?: string } {
+  if (!postalCode || postalCode.length === 0) {
+    return { valid: false, error: "Postal code is required" };
+  }
+  if (postalCode.length > VALIDATION.postal_code.maxLength) {
+    return { valid: false, error: `Postal code must be less than ${VALIDATION.postal_code.maxLength} characters` };
+  }
+  if (!VALIDATION.postal_code.pattern.test(postalCode)) {
+    return { valid: false, error: "Postal code contains invalid characters" };
+  }
+  return { valid: true };
+}
+
+// Validate birthday
+function validateBirthday(birthday: string): { valid: boolean; error?: string } {
+  if (!birthday || birthday.length === 0) {
+    return { valid: false, error: "Birthday is required" };
+  }
+  if (!VALIDATION.birthday.pattern.test(birthday)) {
+    return { valid: false, error: "Birthday must be in YYYY-MM-DD format" };
+  }
+  const year = parseInt(birthday.split("-")[0], 10);
+  if (year < VALIDATION.birthday.minYear || year > VALIDATION.birthday.maxYear) {
+    return { valid: false, error: `Birth year must be between ${VALIDATION.birthday.minYear} and ${VALIDATION.birthday.maxYear}` };
+  }
+  return { valid: true };
+}
+
 // Function to generate email from name
 function generateEmail(name: string): string {
-  const cleanName = name.toLowerCase().trim().replace(/\s+/g, ".");
+  const cleanName = name.toLowerCase().trim().replace(/[^a-z\s]/g, "").replace(/\s+/g, ".");
   return `${cleanName}@company.com`;
 }
 
-// Function to generate password using user details
-function generatePassword(name: string, postalCode: string, birthday: string): string {
-  // Extract first letter of first name and last name
-  const nameParts = name.trim().split(/\s+/);
-  const firstInitial = nameParts[0]?.charAt(0).toUpperCase() || "A";
-  const lastInitial = nameParts[nameParts.length - 1]?.charAt(0).toUpperCase() || "Z";
-  
-  // Extract last 4 digits of postal code
-  const postalDigits = postalCode.replace(/\D/g, "").slice(-4) || "0000";
-  
-  // Extract year from birthday
-  const year = birthday.split("-")[0] || "1990";
-  
-  // Combine: FirstInitialLastInitial + PostalDigits + Year + special char
-  return `${firstInitial}${lastInitial}${postalDigits}${year}!`;
+// Function to generate cryptographically secure password
+function generateSecurePassword(length: number = 16): string {
+  const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+  const array = new Uint8Array(length);
+  crypto.getRandomValues(array);
+  return Array.from(array)
+    .map(x => charset[x % charset.length])
+    .join('');
 }
 
-// Parse CSV content
+// Parse CSV content with validation
 function parseCSV(csvContent: string): CSVRow[] {
+  // Check file size
+  if (csvContent.length > VALIDATION.maxFileSize) {
+    throw new Error(`CSV file is too large. Maximum size is ${VALIDATION.maxFileSize / (1024 * 1024)}MB`);
+  }
+
   const lines = csvContent.trim().split("\n").filter(line => line.trim().length > 0);
   if (lines.length < 2) {
     throw new Error("CSV must contain headers and at least one data row");
   }
 
-  // Parse headers - handle quotes and various delimiters
+  // Check row count
+  if (lines.length - 1 > VALIDATION.maxRows) {
+    throw new Error(`CSV has too many rows. Maximum is ${VALIDATION.maxRows} rows`);
+  }
+
+  // Parse headers
   const headerLine = lines[0];
-  const headers = headerLine.split(",").map(h => h.trim().toLowerCase().replace(/^["']|["']$/g, ""));
+  const headers = headerLine.split(",").map(h => sanitizeCSVValue(h).toLowerCase());
   
   console.log("Found CSV headers:", headers);
   
@@ -81,25 +147,46 @@ function parseCSV(csvContent: string): CSVRow[] {
   console.log(`Column mapping - Name: ${nameIndex}, Postal: ${postalIndex}, Birthday: ${birthdayIndex}`);
 
   const rows: CSVRow[] = [];
+  const errors: string[] = [];
+
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
     
-    const values = line.split(",").map(v => v.trim().replace(/^["']|["']$/g, ""));
+    const values = line.split(",").map(v => sanitizeCSVValue(v));
     
-    if (values[nameIndex] && values[postalIndex] && values[birthdayIndex]) {
-      rows.push({
-        name: values[nameIndex],
-        postal_code: values[postalIndex],
-        birthday: values[birthdayIndex],
-      });
-    } else {
-      console.warn(`Skipping row ${i}: missing required values`);
+    const name = values[nameIndex];
+    const postal_code = values[postalIndex];
+    const birthday = values[birthdayIndex];
+
+    // Validate all fields
+    const nameValidation = validateName(name);
+    if (!nameValidation.valid) {
+      errors.push(`Row ${i}: ${nameValidation.error}`);
+      continue;
     }
+
+    const postalValidation = validatePostalCode(postal_code);
+    if (!postalValidation.valid) {
+      errors.push(`Row ${i}: ${postalValidation.error}`);
+      continue;
+    }
+
+    const birthdayValidation = validateBirthday(birthday);
+    if (!birthdayValidation.valid) {
+      errors.push(`Row ${i}: ${birthdayValidation.error}`);
+      continue;
+    }
+
+    rows.push({ name, postal_code, birthday });
+  }
+
+  if (errors.length > 0) {
+    console.warn("Validation errors:", errors);
   }
 
   if (rows.length === 0) {
-    throw new Error("No valid data rows found in CSV");
+    throw new Error(`No valid data rows found in CSV. ${errors.length > 0 ? `Errors: ${errors.slice(0, 3).join("; ")}` : ""}`);
   }
 
   return rows;
@@ -132,22 +219,48 @@ serve(async (req) => {
 
     console.log("Processing CSV for user:", user.id);
 
+    // Check if user has admin role
+    const { data: userRole, error: roleError } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id)
+      .eq('role', 'admin')
+      .maybeSingle();
+
+    if (roleError) {
+      console.error("Error checking user role:", roleError);
+      throw new Error("Failed to verify user permissions");
+    }
+
+    if (!userRole) {
+      console.warn(`Unauthorized access attempt by user ${user.id} - missing admin role`);
+      return new Response(
+        JSON.stringify({ error: "Unauthorized: Admin role required" }),
+        {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 403,
+        }
+      );
+    }
+
+    console.log("Admin role verified for user:", user.id);
+
     const { csvContent } = await req.json();
     if (!csvContent) {
       throw new Error("No CSV content provided");
     }
 
-    // Parse CSV
+    // Parse and validate CSV
     const csvRows = parseCSV(csvContent);
-    console.log(`Parsed ${csvRows.length} rows from CSV`);
+    console.log(`Parsed ${csvRows.length} valid rows from CSV`);
 
-    // Generate credentials for each user
+    // Generate credentials for each user with secure passwords
     const generatedUsers: GeneratedUser[] = csvRows.map(row => ({
       full_name: row.name,
       postal_code: row.postal_code,
       birthday: row.birthday,
       generated_email: generateEmail(row.name),
-      generated_password: generatePassword(row.name, row.postal_code, row.birthday),
+      generated_password: generateSecurePassword(16),
     }));
 
     // Store in database
@@ -169,7 +282,7 @@ serve(async (req) => {
       throw insertError;
     }
 
-    console.log(`Successfully imported ${generatedUsers.length} users`);
+    console.log(`Successfully imported ${generatedUsers.length} users by admin ${user.id}`);
 
     return new Response(
       JSON.stringify({ 
